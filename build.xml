@@ -20,6 +20,8 @@
     <exec executable="git" outputproperty="git-rev" failifexecutionfails="false">
       <arg line="rev-parse HEAD" />
     </exec>
+    <!-- Without git (e.g. a zip download) git-rev would stay unset and be written literally. -->
+    <property name="git-rev" value="unknown" />
     <condition property="buildinfo-unchanged">
       <equals arg1="${buildinfo.git-rev}" arg2="${git-rev}" />
     </condition>

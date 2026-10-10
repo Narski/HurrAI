@@ -21,7 +21,7 @@ Coordinates are world units (11 per tile).
 | cmd | args | does |
 | --- | --- | --- |
 | `ping` | | returns `"pong"` |
-| `state` | | position, meters (`hp`, `stam`, `nrj`), progress bar, hand, open flower menu, windows, inventories |
+| `state` | | position, meters (`hp`, `stam`, `nrj`), progress bar, hand (cursor), wielded items, open flower menu, windows, inventories |
 | `gobs` | `radius`, `filter` | nearby objects nearest first: `id`, `res`, `x`, `y`, `dist` |
 | `walk` | `x`, `y` | pathfind to a point |
 | `path_to_gob` | `gob` | pathfind next to an object |
@@ -29,4 +29,9 @@ Coordinates are world units (11 per tile).
 | `pick_menu` | `option` | choose a right-click menu option (`null` closes the menu) |
 | `item` | `item`, `action` | `take`, `transfer`, `drop` or `interact` on an inventory item |
 | `wait_idle` | `timeout` (ms) | wait until not pathing, moving or working; `false` on timeout |
+| `drink` | `target` (0-1, default 0.95), `timeout` (ms) | drink from carried water/tea until stamina reaches `target`; returns `before`, `after`, `sips`, `stopped` (`full`, `no_water` or `timeout`) |
+| `water_status` | | carried water containers (`contents`, `amount`, `capacity`) plus totals `water`, `capacity`, `fraction` |
+| `find_water` | `radius` (tiles, default 50) | nearest shallow fresh-water tile `{x, y, tiles}` or `null` |
+| `refill` | | fill all carried containers; must be standing on shallow fresh water |
+| `hearth` | `timeout` (ms, default 45000) | cast "Travel to your hearth fire" and wait for the teleport; returns `arrived`, `from`, `to`, `tiles` |
 | `say` | `text` | show a message in the game's chat area |

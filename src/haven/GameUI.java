@@ -576,6 +576,7 @@ public class GameUI extends ConsoleHost implements Console.Directory, UI.Notice.
         Config.initAutomapper(ui);
     }
 	super.attached();
+	haven.agent.AgentBridge.start(this);
     }
 
 	@Override
@@ -585,6 +586,7 @@ public class GameUI extends ConsoleHost implements Console.Directory, UI.Notice.
 	}
 	@Override
 	public void destroy() {
+		haven.agent.AgentBridge.stop(this);
 		super.destroy();
 		ui.clearGUI(this);
 	}

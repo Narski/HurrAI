@@ -10,7 +10,7 @@ import java.util.Optional;
 
 public class RefillWaterContainers implements Runnable {
     private static final Coord2d posres = Coord2d.of(0x1.0p-10, 0x1.0p-10).mul(11, 11);
-    private static final Map<String, Float> CONTAINER_CAPACITIES = Map.ofEntries(
+    public static final Map<String, Float> CONTAINER_CAPACITIES = Map.ofEntries(
             Map.entry("gfx/invobjs/waterskin", 3.0F),
             Map.entry("gfx/invobjs/small/waterskin", 3.0F),
             Map.entry("gfx/invobjs/waterflask", 2.0F),
@@ -211,7 +211,7 @@ public class RefillWaterContainers implements Runnable {
                 && (content == null || (content.count != capacity && Objects.equals(content.name, "Water")));
     }
 
-    private void refillContainers(Coord2d lc, Gob gob){
+    public void refillContainers(Coord2d lc, Gob gob){
         Inventory belt = returnBelt();
         Equipory equipory = gui.getequipory();
         Map<WItem, Coord> inventoryItems = getInventoryContainers();

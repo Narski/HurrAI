@@ -87,5 +87,28 @@ class Bridge:
     def wait_idle(self, timeout_ms=30000):
         return self.call("wait_idle", timeout=timeout_ms)
 
+    def drink(self, target=0.95, timeout_ms=30000):
+        """Drink (like the Drink button) until stamina reaches target.
+
+        Returns {"before", "after", "sips", "stopped"}; stopped is "full", "no_water" or "timeout".
+        """
+        return self.call("drink", target=target, timeout=timeout_ms)
+
+    def water_status(self):
+        """Carried water containers plus totals: {"containers", "water", "capacity", "fraction"}."""
+        return self.call("water_status")
+
+    def find_water(self, radius_tiles=50):
+        """Nearest shallow fresh-water tile within radius: {"x", "y", "tiles"} or None."""
+        return self.call("find_water", radius=radius_tiles)
+
+    def refill(self):
+        """Fill all carried containers; must be standing on shallow fresh water."""
+        return self.call("refill")
+
+    def hearth(self, timeout_ms=45000):
+        """Cast "Travel to your hearth fire" and wait for the teleport: {"arrived", "from", "to", "tiles"}."""
+        return self.call("hearth", timeout=timeout_ms)
+
     def say(self, text):
         return self.call("say", text=text)

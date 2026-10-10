@@ -2,6 +2,7 @@ package haven.agent;
 
 import haven.*;
 import haven.Window;
+import haven.automated.RefillWaterContainers;
 
 import java.awt.Color;
 import java.io.*;
@@ -135,6 +136,11 @@ public class AgentBridge implements Runnable {
 	case "pick_menu": return(pickMenu((String)req.get("option")));
 	case "item": return(item(lng(req, "item"), str(req, "action")));
 	case "wait_idle": return(waitIdle((long)dbl(req, "timeout", 30000)));
+	case "drink": return(drink(dbl(req, "target", 0.95), (long)dbl(req, "timeout", 30000)));
+	case "water_status": return(waterStatus());
+	case "find_water": return(findWater((int)dbl(req, "radius", 50)));
+	case "refill": return(refill());
+	case "hearth": return(hearth((long)dbl(req, "timeout", 45000)));
 	case "say": gui.msg(str(req, "text"), Color.CYAN); return(true);
 	default: throw new IllegalArgumentException("unknown cmd: " + cmd);
 	}
@@ -181,6 +187,15 @@ public class AgentBridge implements Runnable {
 	GameUI.Progress prog = gui.prog;
 	st.put("progress", (prog == null) ? null : prog.prog);
 	st.put("hand", (gui.vhand == null) ? null : itemInfo(gui.vhand));
+	List<Object> wielded = new ArrayList<>();
+	Equipory eq = gui.getequipory();
+	if(eq != null) {
+	    for(int slot : new int[] {HAND_L, HAND_R}) {
+		if(eq.slots[slot] != null)
+		    wielded.add(itemInfo(eq.slots[slot]));
+	    }
+	}
+	st.put("wielded", wielded);
 	st.put("flower_menu", flowerOptions());
 	List<Object> wnds = new ArrayList<>();
 	for(Widget w = gui.child; w != null; w = w.next) {
@@ -326,6 +341,264 @@ public class AgentBridge implements Runnable {
 	default: throw new IllegalArgumentException("unknown item action: " + action);
 	}
 	return(true);
+    }
+
+    private double stamina() {
+	IMeter.Meter m = gui.getmeter("stam", 0);
+	if(m == null)
+	    throw new IllegalStateException("no stamina meter yet");
+	return(m.a);
+    }
+
+    private boolean drinking() {
+	Gob pl = (gui.map == null) ? null : gui.map.player();
+	return(pl != null && Boolean.TRUE.equals(pl.imDrinking));
+    }
+
+    /**
+     * Uses the game's own Drink action (same as the Drink button) until stamina reaches target.
+     * The server picks the container (waterskin, flask, kuksa, bucket...). Stops early when a
+     * sip doesn't raise stamina, which usually means the character is out of water.
+     */
+    private Map<String, Object> drink(double target, long timeout) throws InterruptedException {
+	double before = stamina();
+	long end = System.currentTimeMillis() + timeout;
+	int sips = 0;
+	String reason = "full";
+	while(stamina() < target) {
+	    if(System.currentTimeMillis() > end) {
+		reason = "timeout";
+		break;
+	    }
+	    double was = stamina();
+	    gui.wdgmsg("act", "drink");
+	    /* Wait for the drinking pose to start, then for it to finish. */
+	    long started = System.currentTimeMillis();
+	    while(!drinking() && System.currentTimeMillis() - started < 2500)
+		Thread.sleep(50);
+	    while(drinking() && stamina() < target && System.currentTimeMillis() < end)
+		Thread.sleep(100);
+	    Thread.sleep(300);
+	    if(stamina() <= was + 0.005) {
+		reason = "no_water";
+		break;
+	    }
+	    sips++;
+	}
+	Map<String, Object> ret = new LinkedHashMap<>();
+	ret.put("before", before);
+	ret.put("after", stamina());
+	ret.put("sips", sips);
+	ret.put("stopped", reason);
+	return(ret);
+    }
+
+    /** Every water-holding container the character carries: inventories, belt and the two pouch slots. */
+    private List<WItem> waterContainers() {
+	List<WItem> ret = new ArrayList<>();
+	for(Inventory inv : gui.getAllInventories()) {
+	    for(Widget c = inv.child; c != null; c = c.next) {
+		if(c instanceof WItem)
+		    ret.add((WItem)c);
+	    }
+	}
+	Equipory eq = gui.getequipory();
+	if(eq != null) {
+	    for(int slot : new int[] {HAND_L, HAND_R, 19, 20}) {
+		if(eq.slots[slot] != null)
+		    ret.add(eq.slots[slot]);
+	    }
+	}
+	ret.removeIf(w -> {
+	    try {
+		return(capacity(w.item.getres().name) == null);
+	    } catch(Loading l) {
+		return(true);
+	    }
+	});
+	return(ret);
+    }
+
+    private static final int HAND_L = 6, HAND_R = 7;
+    private static final float BUCKET_CAPACITY = 10.0f;
+
+    private static boolean isBucket(String res) {
+	return(res.startsWith("gfx/invobjs/bucket") || res.startsWith("gfx/invobjs/small/bucket"));
+    }
+
+    /** Litres a container holds, or null when it isn't a water container. */
+    private static Float capacity(String res) {
+	Float c = RefillWaterContainers.CONTAINER_CAPACITIES.get(res);
+	if(c == null && isBucket(res))
+	    c = BUCKET_CAPACITY;
+	return(c);
+    }
+
+    /** Fills a bucket held in a hand slot: lift it onto the cursor, use it on the water, put it back. */
+    private void refillHandBuckets(Coord2d water) throws InterruptedException {
+	Equipory eq = gui.getequipory();
+	if(eq == null)
+	    return;
+	for(int slot : new int[] {HAND_L, HAND_R}) {
+	    WItem w = eq.slots[slot];
+	    if(w == null)
+		continue;
+	    String res;
+	    try {
+		res = w.item.getres().name;
+	    } catch(Loading l) {
+		continue;
+	    }
+	    if(!isBucket(res))
+		continue;
+	    ItemInfo.Contents ci = null;
+	    try {
+		ci = w.item.getcontents();
+	    } catch(Loading ignored) {
+	    }
+	    if(ci != null && ci.content != null && ci.content.name != null && !ci.content.name.equals("Water"))
+		continue;  // holding seeds or milk or the like, leave it alone
+	    if(ci != null && ci.content != null && ci.content.count >= BUCKET_CAPACITY - 0.01)
+		continue;
+	    w.item.wdgmsg("take", Coord.z);
+	    for(int i = 0; i < 20 && gui.vhand == null; i++)
+		Thread.sleep(50);
+	    if(gui.vhand == null)
+		continue;
+	    gui.map.wdgmsg("itemact", Coord.z, water.floor(posres), 0);
+	    Thread.sleep(800);
+	    eq.wdgmsg("drop", slot);
+	    for(int i = 0; i < 20 && gui.vhand != null; i++)
+		Thread.sleep(50);
+	}
+    }
+
+    /** How much water is carried: per-container contents and an overall fill fraction (null when no containers). */
+    private Map<String, Object> waterStatus() {
+	List<Object> conts = new ArrayList<>();
+	double water = 0, cap = 0;
+	for(WItem w : waterContainers()) {
+	    String res = w.item.getres().name;
+	    float capacity = capacity(res);
+	    ItemInfo.Contents.Content content = null;
+	    try {
+		ItemInfo.Contents ci = w.item.getcontents();
+		if(ci != null)
+		    content = ci.content;
+	    } catch(Loading ignored) {
+	    }
+	    String what = (content == null) ? null : content.name;
+	    double amount = (content == null) ? 0 : content.count;
+	    Map<String, Object> m = new LinkedHashMap<>();
+	    m.put("id", (long)w.item.wdgid());
+	    m.put("res", res);
+	    m.put("contents", what);
+	    m.put("amount", amount);
+	    m.put("capacity", (double)capacity);
+	    conts.add(m);
+	    /* Only empty or water-filled containers count; a skin full of wine isn't refillable. */
+	    if(what == null || what.equals("Water") || what.equals("Tea")) {
+		cap += capacity;
+		if(what != null)
+		    water += amount;
+	    }
+	}
+	Map<String, Object> ret = new LinkedHashMap<>();
+	ret.put("containers", conts);
+	ret.put("water", water);
+	ret.put("capacity", cap);
+	ret.put("fraction", (cap > 0) ? (Object)(water / cap) : null);
+	return(ret);
+    }
+
+    private static boolean freshWater(MCache mc, Coord tc) {
+	try {
+	    Resource r = mc.tilesetr(mc.gettile(tc));
+	    /* Shallow fresh water only: "deep" means swimming and the o* tiles are salt water. */
+	    return(r != null && r.name.equals("gfx/tiles/water"));
+	} catch(Loading l) {
+	    return(false);
+	}
+    }
+
+    /** Nearest shallow fresh-water tile within radius tiles, or null. Coordinates are the tile's centre in world units. */
+    private Map<String, Object> findWater(int radius) {
+	Gob pl = player();
+	MCache mc = gui.ui.sess.glob.map;
+	Coord ptc = pl.rc.floor(MCache.tilesz);
+	Coord best = null;
+	double bestd = Double.MAX_VALUE;
+	for(int dy = -radius; dy <= radius; dy++) {
+	    for(int dx = -radius; dx <= radius; dx++) {
+		double d = Math.sqrt(dx * dx + dy * dy);
+		if(d > radius || d >= bestd)
+		    continue;
+		Coord tc = ptc.add(dx, dy);
+		if(freshWater(mc, tc)) {
+		    best = tc;
+		    bestd = d;
+		}
+	    }
+	}
+	if(best == null)
+	    return(null);
+	Coord2d c = best.mul(MCache.tilesz).add(MCache.tilesz.div(2));
+	Map<String, Object> ret = new LinkedHashMap<>();
+	ret.put("x", c.x);
+	ret.put("y", c.y);
+	ret.put("tiles", bestd);
+	return(ret);
+    }
+
+    /** Fills every carried container with water. The character must be standing on a shallow fresh-water tile. */
+    private Map<String, Object> refill() throws InterruptedException {
+	Gob pl = player();
+	MCache mc = gui.ui.sess.glob.map;
+	if(!freshWater(mc, pl.rc.floor(MCache.tilesz)))
+	    throw new IllegalStateException("not standing on shallow fresh water");
+	double before = (double)waterStatus().get("water");
+	RefillWaterContainers rw = new RefillWaterContainers(gui);
+	for(int pass = 0; pass < 3; pass++) {
+	    rw.refillContainers(pl.rc, null);
+	    refillHandBuckets(pl.rc);
+	    Thread.sleep(600);
+	    Map<String, Object> st = waterStatus();
+	    if((double)st.get("water") >= (double)st.get("capacity") - 0.01)
+		break;
+	}
+	Map<String, Object> st = waterStatus();
+	st.put("before", before);
+	return(st);
+    }
+
+    /**
+     * Casts "Travel to your hearth fire" and waits for the teleport, which shows up as the
+     * character jumping far further than it could walk in one poll.
+     */
+    private Map<String, Object> hearth(long timeout) throws InterruptedException {
+	Coord2d from = player().rc;
+	gui.act("travel", "hearth");
+	long end = System.currentTimeMillis() + timeout;
+	boolean arrived = false;
+	while(System.currentTimeMillis() < end) {
+	    Thread.sleep(250);
+	    Gob pl = (gui.map == null) ? null : gui.map.player();
+	    if(pl != null && pl.rc.dist(from) > 11 * 15) {
+		arrived = true;
+		break;
+	    }
+	}
+	if(arrived) {
+	    /* Let the new area's map and objects load before the agent looks around. */
+	    Thread.sleep(2000);
+	}
+	Map<String, Object> ret = new LinkedHashMap<>();
+	Coord2d to = player().rc;
+	ret.put("arrived", arrived);
+	ret.put("from", Arrays.asList(from.x, from.y));
+	ret.put("to", Arrays.asList(to.x, to.y));
+	ret.put("tiles", to.dist(from) / 11);
+	return(ret);
     }
 
     /** Waits until the character has stopped pathing, moving and working on a progress bar. */

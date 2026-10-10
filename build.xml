@@ -84,7 +84,7 @@
     <condition property="explicit-annotations">
       <javaversion atleast="21" />
     </condition>
-    <javac srcdir="src" destdir="build/classes" debug="on"
+    <javac srcdir="src" destdir="build/classes" debug="on" encoding="UTF-8"
 	   source="17" target="17" includeantruntime="no"
 	   bootclasspath="${boot-classpath}">
       <classpath>
@@ -212,6 +212,8 @@
     <copy file="etc/ansgar-config.properties" tofile="bin/haven-config.properties" />
     <copy file="Play.bat" todir="bin"/>
     <copy file="Play_Linux.sh" todir="bin"/>
+    <copy file="Play_Agent.bat" todir="bin"/>
+    <copy file="Play_Agent.sh" todir="bin"/>
     <copy file="Play_WithSteam.bat" todir="bin"/>
     <copy file="workshop-client.properties" todir="bin"/>
     <copy file="steamicon.gif" todir="bin"/>
